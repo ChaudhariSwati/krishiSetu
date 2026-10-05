@@ -35,10 +35,10 @@ function Market({ token, farmer }) {
     </div>{!list.length && <p>No produce listed yet.</p>}</div>);
 }
 
-function Orders({ token, farmer }) {
+function Orders({ token, farmer, onBrowse }) {
   const [orders, load, err] = useApi('/api/orders', token), [actionErr, setActionErr] = useState('');
   const act = async (id, status) => { try { setActionErr(''); await api('/api/orders/' + id, { method: 'PATCH', token, body: { status } }); await load(); } catch (e) { setActionErr(e.message); } };
-  return (<div><div className="row"><h2>{farmer ? 'Buyer requests' : 'My requests'}</h2><button className="btn" onClick={load}>Refresh</button></div>{err && <p className="err">Unable to load requests: {err} <button className="btn" onClick={load}>Retry</button></p>}{actionErr && <p className="err">{actionErr}</p>}{!orders.length && !err && <p>No requests yet.</p>}
+  return (<div><div className="row"><h2>{farmer ? 'Buyer requests' : 'My requests'}</h2><button className="btn" onClick={load}>Refresh</button>{!farmer && <button className="btn" onClick={onBrowse}>+ Create new request</button>}</div>{!farmer && <p>To create a request, browse available produce and click <b>Request to buy</b>.</p>}{err && <p className="err">Unable to load requests: {err} <button className="btn" onClick={load}>Retry</button></p>}{actionErr && <p className="err">{actionErr}</p>}{!orders.length && !err && <p>No requests yet.</p>}
     {orders.map((o) => (<div className="card" key={o._id}><b>{o.listing?.crop}</b> · {o.quantity} kg · ₹{o.listing?.pricePerKg}/kg <span className={'tag ' + o.status}>{o.status}</span>
       <p>{farmer ? '🛒 Buyer: ' + o.buyer?.name : '👨‍🌾 Farmer: ' + o.farmer?.name}{o.status === 'accepted' && ' · 📞 ' + (farmer ? o.buyer?.phone : o.farmer?.phone)}</p>
       {farmer && o.status === 'pending' && <div className="row"><button className="btn" onClick={() => act(o._id, 'accepted')}>Accept</button><button className="btn red" onClick={() => act(o._id, 'rejected')}>Reject</button></div>}</div>))}</div>);
@@ -65,5 +65,5 @@ export default function App() {
   const { user, token } = auth, farmer = user.role === 'farmer', cur = tab === 'start' ? (farmer ? 'dash' : 'market') : tab;
   const tabs = farmer ? [['dash', 'Dashboard'], ['market', 'Marketplace']] : [['market', 'Marketplace'], ['orders', 'My Requests']];
   return (<div><nav><b>🌾 KrishiSetu</b>{tabs.map(([k, n]) => <button key={k} className={cur === k ? 'on' : ''} onClick={() => setTab(k)}>{n}</button>)}<span>{user.name} ({user.role})</span><button onClick={logout}>Logout</button></nav>
-    <main>{cur === 'dash' && <Dashboard token={token} />}{cur === 'market' && <Market token={token} farmer={farmer} />}{cur === 'orders' && <Orders token={token} farmer={false} />}</main></div>);
+    <main>{cur === 'dash' && <Dashboard token={token} />}{cur === 'market' && <Market token={token} farmer={farmer} />}{cur === 'orders' && <Orders token={token} farmer={false} onBrowse={() => setTab('market')} />}</main></div>);
 }
