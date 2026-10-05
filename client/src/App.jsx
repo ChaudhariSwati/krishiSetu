@@ -5,9 +5,12 @@ async function api(path, { method = 'GET', body, token } = {}) {
   const d = await r.json(); if (!r.ok) throw new Error(d.error || 'Something went wrong'); return d;
 }
 function useApi(path, token) {
-  const [d, setD] = useState([]);
-  const load = useCallback(() => api(path, { token }).then(setD).catch(() => {}), [path, token]);
-  useEffect(() => { load(); }, [load]); return [d, load];
+  const [d, setD] = useState([]), [err, setErr] = useState('');
+  const load = useCallback(() => {
+    setErr('');
+    return api(path, { token }).then(setD).catch((e) => { setErr(e.message); });
+  }, [path, token]);
+  useEffect(() => { load(); }, [load]); return [d, load, err];
 }
 
 function Auth({ onAuth }) {
@@ -23,9 +26,9 @@ function Auth({ onAuth }) {
 }
 
 function Market({ token, farmer }) {
-  const [list] = useApi('/api/listings', token), [q, setQ] = useState(''), [qty, setQty] = useState({}), [msg, setMsg] = useState('');
+  const [list, reload, err] = useApi('/api/listings', token), [q, setQ] = useState(''), [qty, setQty] = useState({}), [msg, setMsg] = useState('');
   const request = async (l) => { try { await api('/api/orders', { method: 'POST', token, body: { listingId: l._id, quantity: qty[l._id] || 1 } }); setMsg('✅ Request sent to ' + l.farmer.name + '. Track it in My Requests.'); } catch (e) { setMsg('❌ ' + e.message); } };
-  return (<div><h2>Marketplace</h2><input placeholder="Search crop..." value={q} onChange={(e) => setQ(e.target.value)} />{msg && <p>{msg}</p>}
+  return (<div><div className="row"><h2>Marketplace</h2><button className="btn" onClick={reload}>Refresh</button></div><input placeholder="Search crop..." value={q} onChange={(e) => setQ(e.target.value)} />{msg && <p>{msg}</p>}{err && <p className="err">Unable to load marketplace: {err} <button className="btn" onClick={reload}>Retry</button></p>}
     <div className="grid">{list.filter((l) => l.crop.toLowerCase().includes(q.toLowerCase())).map((l) => (
       <div className="card" key={l._id}><h3>{l.crop}</h3><p>₹{l.pricePerKg}/kg · {l.quantity} kg available</p><p>👨‍🌾 {l.farmer?.name} · 📍 {l.location || l.farmer?.village}</p>
         {!farmer && <div className="row"><input type="number" min="1" max={l.quantity} placeholder="Qty (kg)" style={{ width: 110 }} onChange={(e) => setQty({ ...qty, [l._id]: e.target.value })} /><button className="btn" onClick={() => request(l)}>Request to buy</button></div>}</div>))}
@@ -33,20 +36,20 @@ function Market({ token, farmer }) {
 }
 
 function Orders({ token, farmer }) {
-  const [orders, load] = useApi('/api/orders', token);
-  const act = async (id, status) => { await api('/api/orders/' + id, { method: 'PATCH', token, body: { status } }); load(); };
-  return (<div><h2>{farmer ? 'Buyer requests' : 'My requests'}</h2>{!orders.length && <p>No requests yet.</p>}
+  const [orders, load, err] = useApi('/api/orders', token), [actionErr, setActionErr] = useState('');
+  const act = async (id, status) => { try { setActionErr(''); await api('/api/orders/' + id, { method: 'PATCH', token, body: { status } }); await load(); } catch (e) { setActionErr(e.message); } };
+  return (<div><div className="row"><h2>{farmer ? 'Buyer requests' : 'My requests'}</h2><button className="btn" onClick={load}>Refresh</button></div>{err && <p className="err">Unable to load requests: {err} <button className="btn" onClick={load}>Retry</button></p>}{actionErr && <p className="err">{actionErr}</p>}{!orders.length && !err && <p>No requests yet.</p>}
     {orders.map((o) => (<div className="card" key={o._id}><b>{o.listing?.crop}</b> · {o.quantity} kg · ₹{o.listing?.pricePerKg}/kg <span className={'tag ' + o.status}>{o.status}</span>
       <p>{farmer ? '🛒 Buyer: ' + o.buyer?.name : '👨‍🌾 Farmer: ' + o.farmer?.name}{o.status === 'accepted' && ' · 📞 ' + (farmer ? o.buyer?.phone : o.farmer?.phone)}</p>
       {farmer && o.status === 'pending' && <div className="row"><button className="btn" onClick={() => act(o._id, 'accepted')}>Accept</button><button className="btn red" onClick={() => act(o._id, 'rejected')}>Reject</button></div>}</div>))}</div>);
 }
 
 function Dashboard({ token }) {
-  const [mine, reload] = useApi('/api/listings/mine', token), [orders] = useApi('/api/orders', token), [f, setF] = useState({}), [err, setErr] = useState('');
+  const [mine, reload, listingsErr] = useApi('/api/listings/mine', token), [orders, reloadOrders, ordersErr] = useApi('/api/orders', token), [f, setF] = useState({}), [err, setErr] = useState('');
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const add = async () => { try { setErr(''); await api('/api/listings', { method: 'POST', token, body: { ...f, quantity: +f.quantity, pricePerKg: +f.pricePerKg } }); setF({}); reload(); } catch (e) { setErr(e.message); } };
   const del = async (id) => { await api('/api/listings/' + id, { method: 'DELETE', token }); reload(); };
-  return (<div><h2>Farmer Dashboard</h2>
+  return (<div><div className="row"><h2>Farmer Dashboard</h2><button className="btn" onClick={() => { reload(); reloadOrders(); }}>Refresh</button></div>{(listingsErr || ordersErr) && <p className="err">Unable to refresh dashboard data. <button className="btn" onClick={() => { reload(); reloadOrders(); }}>Retry</button></p>}
     <div className="stats"><div><b>{mine.length}</b>Active listings</div><div><b>{orders.filter((o) => o.status === 'pending').length}</b>Pending requests</div><div><b>{orders.filter((o) => o.status === 'accepted').length}</b>Accepted deals</div></div>
     <div className="card"><h3>List your produce</h3><div className="row"><input placeholder="Crop (e.g. Tomato)" value={f.crop || ''} onChange={set('crop')} /><input type="number" placeholder="Quantity (kg)" value={f.quantity || ''} onChange={set('quantity')} /><input type="number" placeholder="Price per kg (₹)" value={f.pricePerKg || ''} onChange={set('pricePerKg')} /><input placeholder="Location" value={f.location || ''} onChange={set('location')} /></div>
       {err && <p className="err">{err}</p>}<button className="btn" onClick={add}>+ Add listing</button></div>
